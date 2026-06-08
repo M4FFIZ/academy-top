@@ -1,0 +1,14 @@
+# Скопируйте в корень репозитория как amvera.yml на ветке deploy-web
+# Перед push создайте apps/web/.env.production с URL вашего API (см. HOSTING_AMVERA.md)
+meta:
+  environment: node
+  toolchain:
+    name: npm
+    version: "22"
+
+build:
+  additionalCommands: npm run build -w @academy-top/web
+
+run:
+  command: npm run start -w @academy-top/web
+  containerPort: 3000

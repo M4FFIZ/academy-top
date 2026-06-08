@@ -1,0 +1,335 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  student
+  teacher
+  admin
+}
+
+enum UserStatus {
+  active
+  blocked
+  pending
+}
+
+enum GroupStatus {
+  active
+  completed
+  archived
+}
+
+enum LessonType {
+  lecture
+  practice
+  lab
+  exam
+  other
+}
+
+enum AttendanceStatus {
+  present
+  late
+  absent
+  excused
+}
+
+enum GradeType {
+  homework
+  test
+  exam
+  classwork
+  other
+}
+
+enum ChatRoomType {
+  group
+  private
+}
+
+enum ChatParticipantRole {
+  member
+  moderator
+  admin
+}
+
+enum FriendshipStatus {
+  pending
+  accepted
+  declined
+}
+
+model User {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  username     String?    @unique
+  passwordHash String
+  role         UserRole
+  status       UserStatus @default(active)
+  lastLoginAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  studentProfile       StudentProfile?
+  teacherProfile       TeacherProfile?
+  groupStudents        GroupStudent[]
+  groupSubjects        GroupSubject[]       @relation("TeacherSubjects")
+  scheduleLessons      ScheduleLesson[]     @relation("LessonTeacher")
+  gradesGiven          Grade[]              @relation("GradeTeacher")
+  gradesReceived       Grade[]              @relation("GradeStudent")
+  attendance           AttendanceRecord[]   @relation("AttendanceStudent")
+  attendanceMarked     AttendanceRecord[]   @relation("AttendanceMarker")
+  chatParticipants     ChatParticipant[]
+  chatMessages         ChatMessage[]
+  notifications        Notification[]
+  curatedGroups        Group[]              @relation("GroupCurator")
+  friendshipsSent      Friendship[]         @relation("FriendshipSender")
+  friendshipsReceived  Friendship[]         @relation("FriendshipReceiver")
+}
+
+model StudentProfile {
+  userId     String  @id
+  firstName  String
+  lastName   String
+  middleName String?
+  avatarUrl  String?
+  phone      String?
+  telegram   String?
+  birthDate  DateTime?
+  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model TeacherProfile {
+  userId              String  @id
+  firstName           String
+  lastName            String
+  middleName          String?
+  avatarUrl           String?
+  phone               String?
+  telegram            String?
+  acceptsPrivateChat  Boolean @default(true)
+  user                User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Group {
+  id           String      @id @default(uuid())
+  name         String
+  code         String?     @unique
+  status       GroupStatus @default(active)
+  curatorId    String?
+  academicYear String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  curator         User?            @relation("GroupCurator", fields: [curatorId], references: [id])
+  students        GroupStudent[]
+  subjects        GroupSubject[]
+  scheduleLessons ScheduleLesson[]
+  grades          Grade[]
+  chatRoom        ChatRoom?
+}
+
+model GroupStudent {
+  id        String    @id @default(uuid())
+  groupId   String
+  studentId String
+  isActive  Boolean   @default(true)
+  joinedAt  DateTime  @default(now())
+  leftAt    DateTime?
+
+  group   Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  student User  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, studentId])
+}
+
+model Subject {
+  id        String   @id @default(uuid())
+  name      String
+  shortName String?
+  colorHex  String   @default("#6366F1")
+  createdAt DateTime @default(now())
+
+  groupSubjects   GroupSubject[]
+  scheduleLessons ScheduleLesson[]
+  grades          Grade[]
+}
+
+model GroupSubject {
+  id           String  @id @default(uuid())
+  groupId      String
+  subjectId    String
+  teacherId    String
+  hoursPerWeek Float?
+
+  group   Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  subject Subject @relation(fields: [subjectId], references: [id])
+  teacher User    @relation("TeacherSubjects", fields: [teacherId], references: [id])
+
+  @@unique([groupId, subjectId])
+}
+
+model Room {
+  id        String   @id @default(uuid())
+  name      String
+  building  String?
+  capacity  Int?
+  createdAt DateTime @default(now())
+
+  scheduleLessons ScheduleLesson[]
+}
+
+model ScheduleLesson {
+  id         String     @id @default(uuid())
+  groupId    String
+  subjectId  String
+  teacherId  String
+  roomId     String?
+  lessonType LessonType @default(lecture)
+  startsAt   DateTime
+  endsAt     DateTime
+  comment    String?
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  group      Group              @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  subject    Subject            @relation(fields: [subjectId], references: [id])
+  teacher    User               @relation("LessonTeacher", fields: [teacherId], references: [id])
+  room       Room?              @relation(fields: [roomId], references: [id])
+  grades     Grade[]
+  attendance AttendanceRecord[]
+
+  @@index([groupId, startsAt])
+  @@index([teacherId, startsAt])
+}
+
+model Grade {
+  id        String    @id @default(uuid())
+  studentId String
+  lessonId  String?
+  groupId   String
+  subjectId String
+  teacherId String
+  value     Float
+  gradeType GradeType
+  topic     String?
+  gradedAt  DateTime  @default(now())
+  comment   String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  student User            @relation("GradeStudent", fields: [studentId], references: [id])
+  lesson  ScheduleLesson? @relation(fields: [lessonId], references: [id])
+  group   Group           @relation(fields: [groupId], references: [id])
+  subject Subject         @relation(fields: [subjectId], references: [id])
+  teacher User            @relation("GradeTeacher", fields: [teacherId], references: [id])
+
+  @@index([studentId, subjectId])
+}
+
+model AttendanceRecord {
+  id        String           @id @default(uuid())
+  studentId String
+  lessonId  String
+  status    AttendanceStatus
+  markedBy  String
+  markedAt  DateTime         @default(now())
+  comment   String?
+
+  student User           @relation("AttendanceStudent", fields: [studentId], references: [id])
+  lesson  ScheduleLesson @relation(fields: [lessonId], references: [id])
+  marker  User           @relation("AttendanceMarker", fields: [markedBy], references: [id])
+
+  @@unique([studentId, lessonId])
+}
+
+model ChatRoom {
+  id        String       @id @default(uuid())
+  type      ChatRoomType
+  groupId   String?      @unique
+  dmKey     String?      @unique
+  name      String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @default(now()) @updatedAt
+
+  group        Group?            @relation(fields: [groupId], references: [id])
+  participants ChatParticipant[]
+  messages     ChatMessage[]
+}
+
+model Friendship {
+  id         String           @id @default(uuid())
+  senderId   String
+  receiverId String
+  status     FriendshipStatus @default(pending)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  sender   User @relation("FriendshipSender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User @relation("FriendshipReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@unique([senderId, receiverId])
+  @@index([receiverId, status])
+}
+
+model ChatParticipant {
+  id         String              @id @default(uuid())
+  roomId     String
+  userId     String
+  role       ChatParticipantRole @default(member)
+  lastReadAt DateTime?
+  mutedUntil DateTime?
+
+  room ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+}
+
+model ChatMessage {
+  id        String    @id @default(uuid())
+  roomId    String
+  senderId  String
+  content   String?
+  isPinned  Boolean   @default(false)
+  isDeleted Boolean   @default(false)
+  deletedBy String?
+  createdAt DateTime  @default(now())
+  editedAt  DateTime?
+
+  room        ChatRoom                @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  sender      User                    @relation(fields: [senderId], references: [id])
+  attachments ChatMessageAttachment[]
+
+  @@index([roomId, createdAt])
+}
+
+model ChatMessageAttachment {
+  id        String @id @default(uuid())
+  messageId String
+  fileName  String
+  fileUrl   String
+  fileSize  Int
+  mimeType  String
+
+  message ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  type      String
+  title     String
+  body      String?
+  link      String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
