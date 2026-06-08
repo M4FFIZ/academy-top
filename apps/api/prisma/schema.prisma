@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("postgresql://academy:123qweR%@amvera-username-cnpg-academy-db-rw:5432/academy_top")
 }
 
 enum UserRole {
