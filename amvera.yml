@@ -8,5 +8,5 @@ build:
   additionalCommands: npm run db:generate && npm run build -w @academy-top/api
 
 run:
-  command: sh -c "npm run db:push && npm run db:seed && npm run start -w @academy-top/api"
+  command: npm run amvera:api:start
   containerPort: 3001
