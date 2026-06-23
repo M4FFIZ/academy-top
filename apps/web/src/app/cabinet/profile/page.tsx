@@ -56,7 +56,7 @@ export default function ProfilePage() {
 
             <div>
               <label className="mb-1 block text-sm text-text-muted">
-                Username (как в Telegram)
+                Username (как в MAX)
               </label>
               <div className="flex gap-2">
                 <span className="flex items-center rounded-l-lg border border-r-0 border-border bg-bg-elevated px-3 text-sm text-text-muted">
@@ -95,7 +95,7 @@ export default function ProfilePage() {
             </div>
 
             <div>
-              <label className="mb-1 block text-sm text-text-muted">Telegram</label>
+              <label className="mb-1 block text-sm text-text-muted">MAX</label>
               <input
                 value={telegram}
                 onChange={(e) => setTelegram(e.target.value)}

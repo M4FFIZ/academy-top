@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
+import { Prisma, UserRole } from '@prisma/client';
 import { JwtAuthGuard, RolesGuard } from '../common/guards';
 import { Roles } from '../common/decorators';
 import { PrismaService } from '../prisma/prisma.service';
@@ -10,6 +10,75 @@ import { getDisplayName } from '../common/utils';
 export class GradesController {
   constructor(private prisma: PrismaService) {}
 
+  @Get('grades/options')
+  async getGradeOptions(@Req() req: { user: { id: string; role: UserRole } }) {
+    if (req.user.role === UserRole.student) {
+      const enrollment = await this.prisma.groupStudent.findFirst({
+        where: { studentId: req.user.id, isActive: true },
+        include: {
+          group: {
+            include: {
+              subjects: { include: { subject: true } },
+            },
+          },
+        },
+      });
+
+      const subjects = new Map<string, { id: string; name: string; colorHex: string }>();
+      for (const gs of enrollment?.group.subjects ?? []) {
+        subjects.set(gs.subject.id, gs.subject);
+      }
+
+      if (subjects.size === 0) {
+        const grades = await this.prisma.grade.findMany({
+          where: { studentId: req.user.id },
+          include: { subject: true },
+        });
+        for (const grade of grades) subjects.set(grade.subject.id, grade.subject);
+      }
+
+      return {
+        students: [],
+        subjects: Array.from(subjects.values()).sort((a, b) => a.name.localeCompare(b.name)),
+      };
+    }
+
+    const groupSubjects = await this.prisma.groupSubject.findMany({
+      where: req.user.role === UserRole.teacher ? { teacherId: req.user.id } : {},
+      include: {
+        subject: true,
+        group: {
+          include: {
+            students: {
+              where: { isActive: true },
+              include: { student: { include: { studentProfile: true } } },
+            },
+          },
+        },
+      },
+      orderBy: { group: { name: 'asc' } },
+    });
+
+    const students = new Map<string, { id: string; displayName: string; groupName: string }>();
+    const subjects = new Map<string, { id: string; name: string; colorHex: string }>();
+
+    for (const gs of groupSubjects) {
+      subjects.set(gs.subject.id, gs.subject);
+      for (const groupStudent of gs.group.students) {
+        students.set(groupStudent.studentId, {
+          id: groupStudent.studentId,
+          displayName: getDisplayName(groupStudent.student),
+          groupName: gs.group.name,
+        });
+      }
+    }
+
+    return {
+      students: Array.from(students.values()).sort((a, b) => a.displayName.localeCompare(b.displayName)),
+      subjects: Array.from(subjects.values()).sort((a, b) => a.name.localeCompare(b.name)),
+    };
+  }
+
   @Get('grades')
   async getGrades(
     @Req() req: { user: { id: string; role: UserRole } },
@@ -17,26 +86,26 @@ export class GradesController {
     @Query('groupId') groupId?: string,
     @Query('subjectId') subjectId?: string,
   ) {
-    const where: Record<string, string> = {};
-
-    if (req.user.role === UserRole.student) {
-      where.studentId = req.user.id;
-    } else if (studentId) {
-      where.studentId = studentId;
-    }
-    if (groupId) where.groupId = groupId;
-    if (subjectId) where.subjectId = subjectId;
+    const where = await this.buildGradeWhere(req, { studentId, groupId, subjectId });
 
     const grades = await this.prisma.grade.findMany({
       where,
-      include: { subject: true },
+      include: {
+        subject: true,
+        group: true,
+        student: { include: { studentProfile: true } },
+      },
       orderBy: { gradedAt: 'desc' },
     });
 
     return grades.map((g) => ({
       id: g.id,
+      studentId: g.studentId,
+      studentName: getDisplayName(g.student),
+      subjectId: g.subjectId,
       date: g.gradedAt.toISOString(),
       subjectName: g.subject.name,
+      groupName: g.group.name,
       topic: g.topic,
       value: g.value,
       gradeType: g.gradeType,
@@ -44,12 +113,16 @@ export class GradesController {
   }
 
   @Get('grades/summary')
-  async getSummary(@Req() req: { user: { id: string; role: UserRole } }, @Query('studentId') studentId?: string) {
-    const targetId = req.user.role === UserRole.student ? req.user.id : studentId;
-    if (!targetId) return [];
+  async getSummary(
+    @Req() req: { user: { id: string; role: UserRole } },
+    @Query('studentId') studentId?: string,
+    @Query('subjectId') subjectId?: string,
+  ) {
+    if (req.user.role !== UserRole.student && !studentId) return [];
+    const where = await this.buildGradeWhere(req, { studentId, subjectId });
 
     const grades = await this.prisma.grade.findMany({
-      where: { studentId: targetId },
+      where,
       include: { subject: true },
     });
 
@@ -71,6 +144,44 @@ export class GradesController {
       average: data.values.reduce((a, b) => a + b, 0) / data.values.length,
       count: data.values.length,
     }));
+  }
+
+  private async buildGradeWhere(
+    req: { user: { id: string; role: UserRole } },
+    filters: { studentId?: string; groupId?: string; subjectId?: string },
+  ): Promise<Prisma.GradeWhereInput> {
+    const where: Prisma.GradeWhereInput = {};
+
+    if (req.user.role === UserRole.student) {
+      where.studentId = req.user.id;
+      if (filters.subjectId) where.subjectId = filters.subjectId;
+      if (filters.groupId) where.groupId = filters.groupId;
+      return where;
+    }
+
+    if (filters.studentId) where.studentId = filters.studentId;
+    if (filters.subjectId) where.subjectId = filters.subjectId;
+    if (filters.groupId) where.groupId = filters.groupId;
+
+    if (req.user.role === UserRole.admin) return where;
+
+    const groupSubjects = await this.prisma.groupSubject.findMany({
+      where: {
+        teacherId: req.user.id,
+        ...(filters.groupId ? { groupId: filters.groupId } : {}),
+        ...(filters.subjectId ? { subjectId: filters.subjectId } : {}),
+      },
+      select: { groupId: true, subjectId: true },
+    });
+
+    if (groupSubjects.length === 0) return { id: { in: [] } };
+
+    where.OR = groupSubjects.map((gs) => ({
+      groupId: gs.groupId,
+      subjectId: gs.subjectId,
+    }));
+
+    return where;
   }
 
   @Get('attendance')

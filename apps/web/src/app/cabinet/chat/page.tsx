@@ -76,6 +76,13 @@ export default function ChatPage() {
   const syncedRoomRef = useRef<string | null>(null);
 
   useEffect(() => {
+    syncedRoomRef.current = null;
+    setActiveChat(null);
+    setMobileShowChat(false);
+    setHasMore(true);
+  }, [user?.id]);
+
+  useEffect(() => {
     if (!roomId) {
       syncedRoomRef.current = null;
       return;
@@ -268,7 +275,7 @@ export default function ChatPage() {
                 </div>
                 <h2 className="text-lg font-semibold text-text">Мессенджер Академии ТОП</h2>
                 <p className="max-w-sm text-sm">
-                  Выберите чат или найдите друзей по @username — как в Telegram
+                  Выберите чат или найдите друзей по @username — как в MAX
                 </p>
                 {!user?.username && (
                   <p className="text-xs text-warning">

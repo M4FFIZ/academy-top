@@ -7,11 +7,16 @@ import type { ChatMessage } from "@/lib/api";
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? "http://localhost:3001";
 
 let globalSocket: Socket | null = null;
+let globalSocketToken: string | null = null;
 
 function getGlobalSocket(token: string): Socket {
-  if (globalSocket?.connected) return globalSocket;
+  if (globalSocket && globalSocketToken === token) {
+    if (!globalSocket.connected) globalSocket.connect();
+    return globalSocket;
+  }
   if (globalSocket) globalSocket.disconnect();
 
+  globalSocketToken = token;
   globalSocket = io(`${WS_URL}/ws`, {
     auth: { token },
     transports: ["websocket", "polling"],
@@ -73,7 +78,7 @@ export function useChatSocket(roomId: string | null, token: string | null, curre
     roomIdRef.current = roomId;
     setMessages([]);
     setTypingUser(null);
-  }, [roomId]);
+  }, [roomId, currentUserId]);
 
   useEffect(() => {
     if (!token) return;
@@ -91,7 +96,7 @@ export function useChatSocket(roomId: string | null, token: string | null, curre
           ...prev,
           {
             ...msg,
-            isOwn: currentUserId ? msg.senderId === currentUserId : msg.isOwn,
+            isOwn: currentUserId ? msg.senderId === currentUserId : false,
           },
         ];
       });
