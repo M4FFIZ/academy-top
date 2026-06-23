@@ -9,7 +9,7 @@ import { exportGradesCsv } from "@/lib/export-grades";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { Download } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 const GRADE_TYPE_LABELS: Record<string, string> = {
   homework: "ДЗ",
@@ -29,17 +29,39 @@ const ATTENDANCE_LABELS: Record<string, { label: string; color: string }> = {
 export default function GradesPage() {
   const { token, user } = useAuthStore();
   const [tab, setTab] = useState<"grades" | "attendance">("grades");
+  const [selectedStudentId, setSelectedStudentId] = useState("");
+  const [selectedSubjectId, setSelectedSubjectId] = useState("");
+  const isTeacherView = user?.role === "teacher";
 
-  const { data: summary = [] } = useQuery({
-    queryKey: ["grades-summary", token],
-    queryFn: () => api.gradesSummary(token!),
+  const { data: gradeOptions = { students: [], subjects: [] } } = useQuery({
+    queryKey: ["grade-options", token],
+    queryFn: () => api.gradeOptions(token!),
     enabled: !!token,
   });
 
+  const gradeFilters = useMemo(
+    () => ({
+      studentId: isTeacherView ? selectedStudentId : undefined,
+      subjectId: selectedSubjectId || undefined,
+    }),
+    [isTeacherView, selectedStudentId, selectedSubjectId],
+  );
+
+  const canLoadGrades =
+    !!token &&
+    !!selectedSubjectId &&
+    (user?.role === "student" || (isTeacherView && !!selectedStudentId));
+
+  const { data: summary = [] } = useQuery({
+    queryKey: ["grades-summary", token, gradeFilters],
+    queryFn: () => api.gradesSummary(token!, gradeFilters),
+    enabled: canLoadGrades,
+  });
+
   const { data: grades = [] } = useQuery({
-    queryKey: ["grades", token],
-    queryFn: () => api.grades(token!),
-    enabled: !!token,
+    queryKey: ["grades", token, gradeFilters],
+    queryFn: () => api.grades(token!, gradeFilters),
+    enabled: canLoadGrades,
   });
 
   const { data: attendance = [] } = useQuery({
@@ -72,6 +94,36 @@ export default function GradesPage() {
                 Скачать CSV
               </Button>
             )}
+          </div>
+
+          <div className="flex flex-wrap gap-3 rounded-xl border border-border bg-bg-secondary p-4">
+            {isTeacherView && (
+              <select
+                value={selectedStudentId}
+                onChange={(e) => setSelectedStudentId(e.target.value)}
+                className="rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm"
+              >
+                <option value="">Выберите ученика</option>
+                {gradeOptions.students.map((student) => (
+                  <option key={student.id} value={student.id}>
+                    {student.displayName} · {student.groupName}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            <select
+              value={selectedSubjectId}
+              onChange={(e) => setSelectedSubjectId(e.target.value)}
+              className="rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm"
+            >
+              <option value="">Выберите предмет</option>
+              {gradeOptions.subjects.map((subject) => (
+                <option key={subject.id} value={subject.id}>
+                  {subject.name}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
@@ -107,34 +159,58 @@ export default function GradesPage() {
           </div>
 
           {tab === "grades" && (
-            <div className="overflow-x-auto rounded-xl border border-border">
-              <table className="w-full text-sm">
-                <thead className="bg-bg-secondary">
-                  <tr>
-                    <th className="px-4 py-3 text-left">Дата</th>
-                    <th className="px-4 py-3 text-left">Предмет</th>
-                    <th className="px-4 py-3 text-left">Тема</th>
-                    <th className="px-4 py-3 text-left">Тип</th>
-                    <th className="px-4 py-3 text-right">Оценка</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {grades.map((g) => (
-                    <tr key={g.id} className="border-t border-border">
-                      <td className="px-4 py-3">{new Date(g.date).toLocaleDateString("ru-RU")}</td>
-                      <td className="px-4 py-3">{g.subjectName}</td>
-                      <td className="px-4 py-3 text-text-muted">{g.topic ?? "—"}</td>
-                      <td className="px-4 py-3">
-                        <span className="rounded bg-bg-elevated px-2 py-0.5 text-xs">
-                          {GRADE_TYPE_LABELS[g.gradeType] ?? g.gradeType}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right font-bold text-success">{g.value}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <>
+              {!canLoadGrades && (
+                <p className="rounded-xl border border-border bg-bg-secondary p-4 text-sm text-text-muted">
+                  {isTeacherView
+                    ? "Выберите ученика и предмет, чтобы посмотреть оценки."
+                    : "Выберите предмет, чтобы посмотреть оценки по датам."}
+                </p>
+              )}
+
+              {canLoadGrades && (
+                <div className="overflow-x-auto rounded-xl border border-border">
+                  <table className="w-full text-sm">
+                    <thead className="bg-bg-secondary">
+                      <tr>
+                        <th className="px-4 py-3 text-left">Дата</th>
+                        {isTeacherView && <th className="px-4 py-3 text-left">Ученик</th>}
+                        <th className="px-4 py-3 text-left">Предмет</th>
+                        <th className="px-4 py-3 text-left">Тема</th>
+                        <th className="px-4 py-3 text-left">Тип</th>
+                        <th className="px-4 py-3 text-right">Оценка</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {grades.map((g) => (
+                        <tr key={g.id} className="border-t border-border">
+                          <td className="px-4 py-3">{new Date(g.date).toLocaleDateString("ru-RU")}</td>
+                          {isTeacherView && <td className="px-4 py-3">{g.studentName}</td>}
+                          <td className="px-4 py-3">{g.subjectName}</td>
+                          <td className="px-4 py-3 text-text-muted">{g.topic ?? "—"}</td>
+                          <td className="px-4 py-3">
+                            <span className="rounded bg-bg-elevated px-2 py-0.5 text-xs">
+                              {GRADE_TYPE_LABELS[g.gradeType] ?? g.gradeType}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right font-bold text-success">{g.value}</td>
+                        </tr>
+                      ))}
+                      {grades.length === 0 && (
+                        <tr className="border-t border-border">
+                          <td
+                            className="px-4 py-6 text-center text-text-muted"
+                            colSpan={isTeacherView ? 6 : 5}
+                          >
+                            Оценок по выбранным параметрам пока нет
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
           )}
 
           {tab === "attendance" && (

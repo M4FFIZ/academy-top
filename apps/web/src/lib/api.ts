@@ -2,6 +2,12 @@ import type { UserRole } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/v1";
 
+type GradeFilters = {
+  studentId?: string;
+  groupId?: string;
+  subjectId?: string;
+};
+
 class ApiError extends Error {
   constructor(
     public status: number,
@@ -50,14 +56,33 @@ export const api = {
     return request<ScheduleLesson[]>(`/schedule?${params}`, {}, token);
   },
 
-  grades: (token: string, studentId?: string) => {
-    const q = studentId ? `?studentId=${studentId}` : "";
-    return request<GradeEntry[]>(`/grades${q}`, {}, token);
+  gradeOptions: (token: string) =>
+    request<GradeOptions>("/grades/options", {}, token),
+
+  grades: (token: string, filters?: GradeFilters | string) => {
+    const params = new URLSearchParams();
+    if (typeof filters === "string") {
+      params.set("studentId", filters);
+    } else if (filters) {
+      if (filters.studentId) params.set("studentId", filters.studentId);
+      if (filters.groupId) params.set("groupId", filters.groupId);
+      if (filters.subjectId) params.set("subjectId", filters.subjectId);
+    }
+    const q = params.toString();
+    return request<GradeEntry[]>(`/grades${q ? `?${q}` : ""}`, {}, token);
   },
 
-  gradesSummary: (token: string, studentId?: string) => {
-    const q = studentId ? `?studentId=${studentId}` : "";
-    return request<GradeSummary[]>(`/grades/summary${q}`, {}, token);
+  gradesSummary: (token: string, filters?: GradeFilters | string) => {
+    const params = new URLSearchParams();
+    if (typeof filters === "string") {
+      params.set("studentId", filters);
+    } else if (filters) {
+      if (filters.studentId) params.set("studentId", filters.studentId);
+      if (filters.groupId) params.set("groupId", filters.groupId);
+      if (filters.subjectId) params.set("subjectId", filters.subjectId);
+    }
+    const q = params.toString();
+    return request<GradeSummary[]>(`/grades/summary${q ? `?${q}` : ""}`, {}, token);
   },
 
   attendance: (token: string, studentId?: string) => {
@@ -223,8 +248,12 @@ export interface ScheduleLesson {
 
 export interface GradeEntry {
   id: string;
+  studentId?: string;
+  studentName?: string;
+  subjectId?: string;
   date: string;
   subjectName: string;
+  groupName?: string;
   topic?: string | null;
   value: number;
   gradeType: string;
@@ -236,6 +265,11 @@ export interface GradeSummary {
   color: string;
   average: number;
   count: number;
+}
+
+export interface GradeOptions {
+  students: { id: string; displayName: string; groupName: string }[];
+  subjects: { id: string; name: string; colorHex: string }[];
 }
 
 export interface AttendanceEntry {
